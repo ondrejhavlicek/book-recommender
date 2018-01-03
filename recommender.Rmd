@@ -14,9 +14,9 @@ A better approach is to use other users' ratings to estimate what a given person
 
 First we need a database of book ratings: downloaded from [IIF Freiburg](http://www2.informatik.uni-freiburg.de/~cziegler/BX/). 
 
-## Prepare ratigns data
+## Prepare ratings data
 
-Libraries, functions
+- Libraries, functions
 ```{r Libraries}
 library(tidyverse)
 
@@ -27,8 +27,10 @@ getCosine <- function(x,y)
 
 ```
 
-Settings, constants, etc..
+- Settings, constants, etc..
+
 Cloud Atlas is the book by David Mitchell. There is also a book "The Cloud Atlas" by Liam Callanan which we don't want.
+
 Lord of the Rings is actually a series of three books, include all of them and the original term as well, because there might be a book/product which is called this way, e.g. a collection of all the books.
 ```{r}
 datafolder <- file.path(getwd(),"data")
@@ -37,8 +39,7 @@ myfavs <- c("Cloud Atlas", "The Lord of the Rings", "The Fellowship of the Ring"
 myfavsshort <- c("CA", "LOTR", "FOTR", "TTT", "ROTK")
 ```
 
-## Prepare data
-Read data
+- Read data
 ```{r}
 Users <- read_delim(file.path(datafolder, "BX-Users.csv"), ";", quote = "\"", na="NULL", col_types = "ici")
 
@@ -50,7 +51,7 @@ Ratings <- read_delim(file.path(datafolder, "BX-Book-Ratings.csv"), ";", quote =
 There were some parsing problems, ignore for now..
 
 
-Modify data
+- Modify data
 ```{r}
 Users <- Users %>% separate(col=Location, into=c("Loc1", "Loc2", "Loc3"), sep=",")
 
@@ -61,7 +62,7 @@ Ratings <- Ratings %>% filter(`Book-Rating` > 0) # Remove implicit ratings (code
 Location format apparently not always consistent, but we won|t be using this information for now anyway
 
 
-Select only the books we care about. The same book may have multiple name variations and ISBNs, so the surest way is to do it semi-manually.
+- Select only the books we care about. The same book may have multiple name variations and ISBNs, so the surest way is to do it semi-manually.
 ```{r}
 findbooktitles <- adist(Books$`Book-Title`, myfavs)  # "fuzzy" string matching
 findbooktitles <- as_tibble(findbooktitles) 
@@ -95,28 +96,27 @@ MyBooks <- MyBooks %>% filter(ISBN %in% myISBNs) %>% select(-(CA:ROTK))
 ```
 That's quite a few ISBNs for LOTR, we may need to care about giving equal weight to Cloud Atlas, but will see..
 
-Find all the ratings given to these books
+- Find all the ratings given to these books
 ```{r}
 MyBooksRatings <- left_join(MyBooks, Ratings, by="ISBN")
 
 ```
 
 
-Does the DB allow multiple ratings of the same book by the same user?
+- Does the DB allow multiple ratings of the same book by the same user?
 ```{r}
 #MyBooksRatings %>% filter(ISBN %in% myISBNs) %>% arrange(`User-ID`)
 MyBooksRatings %>% filter(ISBN %in% myISBNs) %>% group_by(`User-ID`, ISBN) %>% summarize(count = n()) %>% ungroup() %>% summarize(maxcount = max(count))
 ```
 Probably not.
 
-How frequent are which ratings?
+- How frequent are which ratings?
 ```{r}
 MyBooksRatings %>% count(`Book-Rating`)  
 with(MyBooksRatings, table(ISBN, `Book-Rating`)) 
 myISBNsWithRatings <- MyBooksRatings %>% filter(!is.na(`Book-Rating`)) %>% group_by(ISBN) %>% summarize(count = length(`Book-Rating`)) %>% filter(count > 0) %>% .$ISBN  # count only those books that have some non-NA ratings (the latter part is redundant because of how MyBooksRatings were created, but for sure..)
 ```
-Most ratings are in the range 8-10
-3 of the books were never rated
+Most ratings are in the range 8-10, 3 of the books were never rated
 
 
 ## Create a user-book rating matrix
@@ -128,8 +128,8 @@ Most ratings are in the range 8-10
 ``` 
 Cannot fit the whole matrix into memory..
 
-Limit only to those users who have rated at least one of the selected books.
-And to books which have a rating by at least one of those users (so that the matrix does not have any empty rows)
+- Limit only to those users who have rated at least one of the selected books.
+- And to books which have a rating by at least one of those users (so that the matrix does not have any empty rows)
 ```{r}
 usersWithRatings <- MyBooksRatings %>% select(`User-ID`) %>% arrange() %>% unique() %>% .$`User-ID`
 #length(usersWithRatings)  # only 60 users have rated at least one of the CA and LOTR books..
@@ -152,8 +152,9 @@ Now the real computation needs to happen:-)
 ## Compute item-based similarity
 
 Item similarit is more meaningful than user similarity and we don't know the active user's ratings anyway
-Which similarity measure to use? Pearson correlation is a good one
-Cosine similarity is another option
+
+Which similarity measure to use? Pearson correlation is a good one, Cosine similarity is another option
+
 It has to deal with all the missing values..
 
 ```{r}
@@ -189,7 +190,7 @@ top10 %>% select(ISBN, cosineCA) %>% left_join(Books, by="ISBN") %>% arrange(des
 So the book most similar book to Cloud Atlas seems to be On the Road by Jack Kerouac, but based apparently on only one rating:-)
 
 
-Compute a full similarity matrix, to try this more general approach, although we don't need all the similarities
+- Compute a full similarity matrix, to try this more general approach, although we don't need all the similarities
 ```{r}
 #initialize similarity matrix
 sm <- matrix(data=NA, nrow = nrow(rm), ncol = nrow(rm), dimnames = list(RM$ISBN, RM$ISBN) )
@@ -228,6 +229,7 @@ Recommendations %>% filter(ISBN %in% myISBNsWithRatings)  # relatively lower mut
 ```
 
 The recommendations we got are somewhat strange. It might be due to the 15 different ISBNs for the LOTR books, it might help to unify them and their ratings, manually or per book title (&author) instead of per ISBN.
+
 There are apparently many ways how to do recommendation systems. Some of the tasks seem to be quite standard so not surprisingly there are packages for them:
 
 
@@ -256,7 +258,7 @@ ibModel <- Recommender(rma,method="IBCF",
 
 ```
 
-Get recommendations
+- Get recommendations
 ```{r}
 #ibPrediction <- predict(ibModel, activeUser, n=10)
 ibPrediction <- predict(ibModel, rma["active",], type="ratings")
@@ -269,6 +271,7 @@ Books %>% filter(ISBN %in% as(recommendedBooks, "list")[[1]] )
 
 ```
 We don't get any recommendation, possibly because all the ratings were 10 and they got normalized to 0, we could try a different method, try to remove the normalization, or add some fake ratings of 1 for some random/fake book not rated by anyone else.
+
 The possibilities are wide..
 
 
